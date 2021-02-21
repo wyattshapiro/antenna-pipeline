@@ -1,0 +1,40 @@
+version: '3.8'
+services:
+    postgres:
+        image: postgres:12
+        env_file:
+            - .env
+        volumes:
+              - ./pgdata:/var/lib/postgresql/data/pgdata
+
+    webserver:
+        build: .
+        entrypoint: ./scripts/entrypoint.sh
+        restart: always
+        depends_on:
+            - postgres
+        env_file:
+            - .env
+        volumes:
+            - ./dags:/opt/airflow/dags
+            - ./logs:/opt/airflow/logs
+            - ./scripts:/opt/airflow/scripts
+            - ./plugins:/opt/airflow/plugins
+            - ./files:/opt/airflow/files
+        ports:
+            - "8080:8080"
+
+    scheduler:
+        build: .
+        command: scheduler
+        restart: always
+        depends_on:
+            - postgres
+            - webserver
+        env_file:
+            - .env
+        volumes:
+            - ./dags:/opt/airflow/dags
+            - ./logs:/opt/airflow/logs
+            - ./plugins:/opt/airflow/plugins
+            - ./files:/opt/airflow/files
