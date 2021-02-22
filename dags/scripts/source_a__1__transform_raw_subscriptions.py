@@ -53,7 +53,7 @@ def identify_service(row):
     text_match = row['text_match']
     text_exclude = row['text_exclude']
     matching = row['matching']
-    print(f'Checking "{input_text}" for "{text_match}"')
+    print(f'Checking "{input_text}" with "{text_match}"')
     
     # add check for exclude_text
     # check if match is at start of text

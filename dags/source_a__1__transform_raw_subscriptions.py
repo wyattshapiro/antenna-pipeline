@@ -2,6 +2,8 @@ from airflow import DAG
 from airflow.operators.python_operator import PythonOperator
 from airflow.operators.bash_operator import BashOperator
 from airflow.operators.dummy import DummyOperator
+from operators.local_to_s3 import LocalToS3Operator
+from operators.s3_to_local import S3ToLocalOperator
 from airflow.utils.trigger_rule import TriggerRule
 from scripts.dag_util import construct_s3_and_local_file_path
 from scripts.source_a__1__transform_raw_subscriptions import (
@@ -9,7 +11,8 @@ from scripts.source_a__1__transform_raw_subscriptions import (
 )
 from config.source_a__1__transform_raw_subscriptions import (
     EXECUTION_DATE,
-    LOCAL_FILE_PATH_RAW_DATA
+    LOCAL_FILE_PATH_RAW_DATA,
+    S3_BUCKET_RAW_DATA
 )
 from datetime import datetime
 
@@ -37,13 +40,6 @@ This DAG takes raw subscription data from Source A and identifies key subscripti
 **Downstream DAG(s)**: None<br/>
 """
 
-default_args = {
-    'owner': 'dev',
-    'depends_on_past': False,
-    'start_date': datetime(2020, 2, 20),
-    'retries': 0
-}
-
 # define file outputs
 FILES = {
     'raw_subscriptions': {'file_name': 'ANTENNA_Data_Engineer_Test_Data.csv'},
@@ -52,6 +48,14 @@ FILES = {
 }
 FILES = construct_s3_and_local_file_path(FILES, LOCAL_FILE_PATH_RAW_DATA, EXECUTION_DATE)
 
+# define DAG
+default_args = {
+    'owner': 'dev',
+    'depends_on_past': False,
+    'start_date': datetime(2020, 2, 20),
+    'retries': 0
+}
+
 with DAG('source_a__1__transform_raw_subscriptions',
          default_args=default_args,
          schedule_interval='@daily',
@@ -59,20 +63,33 @@ with DAG('source_a__1__transform_raw_subscriptions',
     dag.doc_md = doc
 
     # define tasks
-    create_local_file_directory = DummyOperator(
+    create_local_file_directory = BashOperator(
         task_id='create_local_file_directory',
+        bash_command='mkdir -p {}/{}'.format(LOCAL_FILE_PATH_RAW_DATA, EXECUTION_DATE)
     )
 
-    download_raw_subscriptions_from_s3 = DummyOperator(
+    download_raw_subscriptions_from_s3 = S3ToLocalOperator(
         task_id='download_raw_subscriptions_from_s3',
+        s3_conn_id='',  # set in environment variable
+        s3_bucket=S3_BUCKET_RAW_DATA,
+        s3_key=FILES['raw_subscriptions']['s3_key'],
+        local_file_path=FILES['raw_subscriptions']['local_file_path']
     )
 
-    download_service_matching_rules_from_s3 = DummyOperator(
+    download_service_matching_rules_from_s3 = S3ToLocalOperator(
         task_id='download_service_matching_rules_from_s3',
+        s3_conn_id='',  # set in environment variable
+        s3_bucket=S3_BUCKET_RAW_DATA,
+        s3_key=FILES['service_matching_rules']['s3_key'],
+        local_file_path=FILES['service_matching_rules']['local_file_path']
     )
 
-    # download_signup_matching_rules_from_s3 = DummyOperator(
+    # download_signup_matching_rules_from_s3 = S3ToLocalOperator(
     #     task_id='download_signup_matching_rules_from_s3',
+    #     s3_conn_id='',  # set in environment variable
+    #     s3_bucket=S3_BUCKET_RAW_DATA,
+    #     s3_key=FILES['signup_matching_rules']['s3_key'],
+    #     local_file_path=FILES['signup_matching_rules']['local_file_path']
     # )
 
     identify_services = PythonOperator(
@@ -97,14 +114,13 @@ with DAG('source_a__1__transform_raw_subscriptions',
         task_id='check_transformed_subscriptions',
     )
 
-    upload_transformed_subscriptions_to_s3_success = DummyOperator(
-        task_id='upload_transformed_subscriptions_to_s3_success',
-        trigger_rule=TriggerRule.NONE_FAILED
-    )
-
-    upload_transformed_subscriptions_to_s3_fail = DummyOperator(
-        task_id='upload_transformed_subscriptions_to_s3_fail',
-        trigger_rule=TriggerRule.ONE_FAILED
+    upload_transformed_subscriptions_to_s3 = LocalToS3Operator(
+        task_id='upload_transformed_subscriptions_to_s3',
+        trigger_rule=TriggerRule.NONE_FAILED,
+        s3_conn_id='',  # set in environment variable
+        s3_bucket=S3_BUCKET_RAW_DATA,
+        s3_key=FILES['transformed_subscriptions']['s3_key'],
+        local_file_path=FILES['transformed_subscriptions']['local_file_path']
     )
 
     # define order of tasks
@@ -112,7 +128,7 @@ with DAG('source_a__1__transform_raw_subscriptions',
     download_raw_subscriptions_from_s3 >> download_service_matching_rules_from_s3
     download_service_matching_rules_from_s3 >> identify_services
     identify_services >> check_transformed_subscriptions
-    check_transformed_subscriptions >> [upload_transformed_subscriptions_to_s3_success, upload_transformed_subscriptions_to_s3_fail]
+    check_transformed_subscriptions >> upload_transformed_subscriptions_to_s3
     # identify_services >> check_transformed_subscriptions
     # download_raw_subscriptions_from_s3 >> download_signup_matching_rules_from_s3
     # download_signup_matching_rules_from_s3 >> identify_signups
