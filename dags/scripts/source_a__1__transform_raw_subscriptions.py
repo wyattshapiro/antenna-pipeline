@@ -96,24 +96,43 @@ def has_service_match(row):
     text_match = row['text_match']
     text_exclude = row['text_exclude']
     matching = row['matching']
-    logging.info(f'{item_id}: Checking "{input_text}" with "{text_match}"')
+    logging.info(f'{item_id}: Use {matching} to check "{input_text}" with "{text_match}" ignoring "{text_exclude}"')
     
-    # add check for exclude_text
     # check if match is at start of text
     if matching == 'S':
         if input_text[:len(text_match)] == text_match:
-            logging.info('match')
-            return True
-    # check if match is within text
+            # exclude text is empty so match exists
+            if len(text_exclude) == 0:
+                logging.info('match')
+                return True
+            # if exclude text is part of rule, then check it
+            elif len(text_exclude) > 0 and input_text[:len(text_exclude)] != text_exclude:
+                logging.info('match')
+                return True
+    
+    # check if match is anywhere in text
     elif matching == 'A':
         if text_match in input_text:
-            logging.info('match')
-            return True
-    # check if match has regex match
+            # exclude text is empty so match exists
+            if len(text_exclude) == 0:
+                logging.info('match')
+                return True
+            # if exclude text is part of rule, then check it
+            elif len(text_exclude) > 0 and text_exclude not in input_text:
+                logging.info('match')
+                return True
+    
+    # check for regex match
     elif matching == 'R':
         if re.search(text_match, input_text):
-            logging.info('match')
-            return True
+            # exclude text is empty so match exists
+            if len(text_exclude) == 0:
+                logging.info('match')
+                return True
+            # if exclude text is part of rule, then check it
+            elif len(text_exclude) > 0 and re.search(text_exclude, input_text) is None:
+                logging.info('match')
+                return True
     
     logging.info('no match')
     return False
