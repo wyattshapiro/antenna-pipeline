@@ -203,8 +203,6 @@ def get_subscription_is_trial(input_file_path, output_file_path):
 
     # apply each rule to subscription text to determine if signal type
     subscription_df['is_trial'] = subscription_df.apply(is_trial, axis=1)
-    count_by_is_trial = subscription_df.groupby(by=['is_trial'], dropna=False).count()['item_id']
-    logging.info(count_by_is_trial)
 
     # write output
     subscription_df.to_csv(output_file_path, index=False)

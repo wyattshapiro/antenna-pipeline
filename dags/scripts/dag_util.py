@@ -25,10 +25,11 @@ def assert_df_column_has_min_value_distribution(input_file_path, group_column, m
 
     # get distribution of values
     distribution_by_group = input_df[group_column].value_counts(normalize=True)
-    
+    logging.info(distribution_by_group)
+
     # determine if any groups have frequency below minimum threshold
     has_rare_group = distribution_by_group.where(distribution_by_group < min_frequency).any()
-    
+
     # if rare group is detected, then throw error
     error_message = f'Expected at least {min_frequency} frequency for each group in column {group_column}.'
     assert (not has_rare_group), error_message

@@ -179,6 +179,16 @@ with DAG('source_a__1__transform_raw_subscriptions',
         }
     )
 
+    check_is_trial_distribution = PythonOperator(
+        task_id='check_is_trial_distribution',
+        python_callable=dag_util.assert_df_column_has_min_value_distribution,
+        op_kwargs={
+            'input_file_path': FILES['subscriptions_with_is_trial']['local_file_path'],
+            'group_column': 'is_trial',
+            'min_frequency': 0.01
+        }
+    )
+
     upload_subscriptions_transformed_to_s3 = LocalToS3Operator(
         task_id='upload_subscriptions_transformed_to_s3',
         trigger_rule=TriggerRule.NONE_FAILED,
@@ -200,4 +210,5 @@ with DAG('source_a__1__transform_raw_subscriptions',
     get_subscription_signal_type >> get_subscription_is_trial
     get_subscription_signal_type >> check_signal_type_distribution
     get_subscription_is_trial >> upload_subscriptions_transformed_to_s3
+    get_subscription_is_trial >> check_is_trial_distribution
 
