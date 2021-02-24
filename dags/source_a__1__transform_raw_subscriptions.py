@@ -6,6 +6,7 @@ from operators.local_to_s3 import LocalToS3Operator
 from operators.s3_to_local import S3ToLocalOperator
 from airflow.utils.trigger_rule import TriggerRule
 import scripts.source_a__1__transform_raw_subscriptions as func
+import scripts.dag_util as dag_util
 from config.source_a__1__transform_raw_subscriptions import (
     EXECUTION_DATE,
     LOCAL_FILE_PATH_RAW_DATA,
@@ -63,6 +64,18 @@ FILES = {
         's3_bucket': S3_BUCKET_RAW_DATA,
         's3_key_path': f'{EXECUTION_DATE}/ANTENNA_Data_Engineer_Test_Data_with_service.csv',
         'local_file_path': f'{LOCAL_FILE_PATH_RAW_DATA}/{EXECUTION_DATE}/ANTENNA_Data_Engineer_Test_Data_with_service.csv'
+    },
+    'subscriptions_with_signal': {
+        'file_name': 'ANTENNA_Data_Engineer_Test_Data_with_signal.csv',
+        's3_bucket': S3_BUCKET_RAW_DATA,
+        's3_key_path': f'{EXECUTION_DATE}/ANTENNA_Data_Engineer_Test_Data_with_signal.csv',
+        'local_file_path': f'{LOCAL_FILE_PATH_RAW_DATA}/{EXECUTION_DATE}/ANTENNA_Data_Engineer_Test_Data_with_signal.csv'
+    },
+    'subscriptions_with_is_trial': {
+        'file_name': 'ANTENNA_Data_Engineer_Test_Data_with_is_trial.csv',
+        's3_bucket': S3_BUCKET_RAW_DATA,
+        's3_key_path': f'{EXECUTION_DATE}/ANTENNA_Data_Engineer_Test_Data_with_is_trial.csv',
+        'local_file_path': f'{LOCAL_FILE_PATH_RAW_DATA}/{EXECUTION_DATE}/ANTENNA_Data_Engineer_Test_Data_with_is_trial.csv'
     }
 }
 
@@ -111,11 +124,20 @@ with DAG('source_a__1__transform_raw_subscriptions',
         }
     )
 
-    check_unique_item_id = PythonOperator(
-        task_id='check_unique_item_id',
-        python_callable=func.check_unique_item_id,
+    assert_no_duplicate_items = PythonOperator(
+        task_id='assert_no_duplicate_items',
+        python_callable=dag_util.assert_df_column_has_no_duplicate_values,
         op_kwargs={
-            'input_file_path': FILES['subscriptions_latest']['local_file_path']
+            'input_file_path': FILES['subscriptions_latest']['local_file_path'],
+            'unique_column': 'item_id'
+        }
+    )
+
+    check_service_matching_rules = PythonOperator(
+        task_id='check_service_matching_rules',
+        python_callable=func.check_service_matching_rules,
+        op_kwargs={
+            'input_file_path': FILES['service_matching_rules']['local_file_path']
         }
     )
 
@@ -129,21 +151,53 @@ with DAG('source_a__1__transform_raw_subscriptions',
         }
     )
 
+    get_subscription_signal_type = PythonOperator(
+        task_id='get_subscription_signal_type',
+        python_callable=func.get_subscription_signal_type,
+        op_kwargs={
+            'input_file_path': FILES['subscriptions_with_service']['local_file_path'],
+            'output_file_path': FILES['subscriptions_with_signal']['local_file_path']
+        }
+    )
+
+    check_signal_type_distribution = PythonOperator(
+        task_id='check_signal_type_distribution',
+        python_callable=dag_util.assert_df_column_has_min_value_distribution,
+        op_kwargs={
+            'input_file_path': FILES['subscriptions_with_signal']['local_file_path'],
+            'group_column': 'signal_type',
+            'min_frequency': 0.05
+        }
+    )
+
+    get_subscription_is_trial = PythonOperator(
+        task_id='get_subscription_is_trial',
+        python_callable=func.get_subscription_is_trial,
+        op_kwargs={
+            'input_file_path': FILES['subscriptions_with_signal']['local_file_path'],
+            'output_file_path': FILES['subscriptions_with_is_trial']['local_file_path']
+        }
+    )
+
     upload_subscriptions_transformed_to_s3 = LocalToS3Operator(
         task_id='upload_subscriptions_transformed_to_s3',
         trigger_rule=TriggerRule.NONE_FAILED,
         s3_conn_id='',  # set in environment variable
-        s3_bucket=FILES['subscriptions_with_service']['s3_bucket'],
-        s3_key=FILES['subscriptions_with_service']['s3_key_path'],
-        local_file_path=FILES['subscriptions_with_service']['local_file_path'],
+        s3_bucket=FILES['subscriptions_with_is_trial']['s3_bucket'],
+        s3_key=FILES['subscriptions_with_is_trial']['s3_key_path'],
+        local_file_path=FILES['subscriptions_with_is_trial']['local_file_path'],
         replace=True
     )
 
     # define order of tasks
     create_local_file_directory >> [download_subscriptions_raw_from_s3, download_service_matching_rules_from_s3]
     download_subscriptions_raw_from_s3 >> filter_latest_subscription_event
-    filter_latest_subscription_event >> check_unique_item_id
-    check_unique_item_id >> get_subscription_service
-    download_service_matching_rules_from_s3 >> get_subscription_service
-    get_subscription_service >> upload_subscriptions_transformed_to_s3
+    filter_latest_subscription_event >> assert_no_duplicate_items
+    assert_no_duplicate_items >> get_subscription_service
+    download_service_matching_rules_from_s3 >> check_service_matching_rules
+    check_service_matching_rules >> get_subscription_service
+    get_subscription_service >> get_subscription_signal_type
+    get_subscription_signal_type >> get_subscription_is_trial
+    get_subscription_signal_type >> check_signal_type_distribution
+    get_subscription_is_trial >> upload_subscriptions_transformed_to_s3
 
