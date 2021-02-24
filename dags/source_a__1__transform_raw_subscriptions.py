@@ -1,6 +1,6 @@
 from airflow import DAG
-from airflow.operators.python_operator import PythonOperator
-from airflow.operators.bash_operator import BashOperator
+from airflow.operators.python import PythonOperator
+from airflow.operators.bash import BashOperator
 from airflow.operators.dummy import DummyOperator
 from operators.local_to_s3 import LocalToS3Operator
 from operators.s3_to_local import S3ToLocalOperator
@@ -111,6 +111,14 @@ with DAG('source_a__1__transform_raw_subscriptions',
         }
     )
 
+    check_unique_item_id = PythonOperator(
+        task_id='check_unique_item_id',
+        python_callable=func.check_unique_item_id,
+        op_kwargs={
+            'input_file_path': FILES['subscriptions_latest']['local_file_path']
+        }
+    )
+
     get_subscription_service = PythonOperator(
         task_id='get_subscription_service',
         python_callable=func.get_subscription_service,
@@ -119,10 +127,6 @@ with DAG('source_a__1__transform_raw_subscriptions',
             'service_matching_file_path': FILES['service_matching_rules']['local_file_path'],
             'output_file_path': FILES['subscriptions_with_service']['local_file_path']
         }
-    )
-
-    check_subscriptions_transformed = DummyOperator(
-        task_id='check_subscriptions_transformed',
     )
 
     upload_subscriptions_transformed_to_s3 = LocalToS3Operator(
@@ -138,8 +142,8 @@ with DAG('source_a__1__transform_raw_subscriptions',
     # define order of tasks
     create_local_file_directory >> [download_subscriptions_raw_from_s3, download_service_matching_rules_from_s3]
     download_subscriptions_raw_from_s3 >> filter_latest_subscription_event
-    filter_latest_subscription_event >> get_subscription_service
+    filter_latest_subscription_event >> check_unique_item_id
+    check_unique_item_id >> get_subscription_service
     download_service_matching_rules_from_s3 >> get_subscription_service
-    get_subscription_service >> check_subscriptions_transformed
-    check_subscriptions_transformed >> upload_subscriptions_transformed_to_s3
+    get_subscription_service >> upload_subscriptions_transformed_to_s3
 

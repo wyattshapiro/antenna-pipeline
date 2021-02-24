@@ -1,6 +1,8 @@
 import pandas as pd 
 import re
 import logging
+from airflow.exceptions import AirflowException
+
 
 def filter_latest_subscription_event(input_file_path, output_file_path):
     """Get the most recent subscription event per item id.
@@ -22,6 +24,21 @@ def filter_latest_subscription_event(input_file_path, output_file_path):
 
     # write output
     subscription_latest_df.to_csv(output_file_path, index=False)
+
+
+def check_unique_item_id(input_file_path):
+    # read in files
+    subscription_df = pd.read_csv(input_file_path).fillna('')
+    num_row = len(subscription_df)
+    num_unique_item_id = len(subscription_df['item_id'].unique())
+
+    if num_row != num_unique_item_id:
+        error_message = 'Expected equal number of rows and unique ids,\
+        recieved {num_row} rows and {num_unique_item_id} ids.'.format(
+            num_row=num_row, 
+            num_unique_item_id=num_unique_item_id
+        )
+        raise AirflowException(error_message)
 
 
 def get_subscription_service(input_file_path, service_matching_file_path, output_file_path):
