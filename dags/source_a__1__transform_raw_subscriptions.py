@@ -7,9 +7,11 @@ from operators.s3_to_local import S3ToLocalOperator
 from airflow.utils.trigger_rule import TriggerRule
 import scripts.source_a__1__transform_raw_subscriptions as func
 import scripts.dag_util as dag_util
+import scripts.data_quality as data_quality
 from config.source_a__1__transform_raw_subscriptions import (
     EXECUTION_DATE,
     LOCAL_FILE_PATH_RAW_DATA,
+    LOCAL_FILE_PATH_RAW_DATA_WITH_DATE,
     S3_BUCKET_RAW_DATA
 )
 from datetime import datetime
@@ -44,40 +46,45 @@ FILES = {
     'service_matching_rules': {
         'file_name': 'ANTENNA_Data_Engineer_Matching_Rules.csv',
         's3_bucket': S3_BUCKET_RAW_DATA,
-        's3_key_path': 'ANTENNA_Data_Engineer_Matching_Rules.csv',
-        'local_file_path': f'{LOCAL_FILE_PATH_RAW_DATA}/ANTENNA_Data_Engineer_Matching_Rules.csv'
+        's3_directory': '',
+        'local_file_directory': LOCAL_FILE_PATH_RAW_DATA
     },
     'subscriptions_raw': {
         'file_name': 'ANTENNA_Data_Engineer_Test_Data.csv',
         's3_bucket': S3_BUCKET_RAW_DATA,
-        's3_key_path': f'{EXECUTION_DATE}/ANTENNA_Data_Engineer_Test_Data.csv',
-        'local_file_path': f'{LOCAL_FILE_PATH_RAW_DATA}/{EXECUTION_DATE}/ANTENNA_Data_Engineer_Test_Data.csv'
+        's3_directory': EXECUTION_DATE,
+        'local_file_directory': LOCAL_FILE_PATH_RAW_DATA_WITH_DATE
     },
     'subscriptions_latest': {
         'file_name': 'ANTENNA_Data_Engineer_Test_Data_latest.csv',
         's3_bucket': S3_BUCKET_RAW_DATA,
-        's3_key_path': f'{EXECUTION_DATE}/ANTENNA_Data_Engineer_Test_Data_latest.csv',
-        'local_file_path': f'{LOCAL_FILE_PATH_RAW_DATA}/{EXECUTION_DATE}/ANTENNA_Data_Engineer_Test_Data_latest.csv'
+        's3_directory': EXECUTION_DATE,
+        'local_file_directory': LOCAL_FILE_PATH_RAW_DATA_WITH_DATE
     },
     'subscriptions_with_service': {
         'file_name': 'ANTENNA_Data_Engineer_Test_Data_with_service.csv',
         's3_bucket': S3_BUCKET_RAW_DATA,
-        's3_key_path': f'{EXECUTION_DATE}/ANTENNA_Data_Engineer_Test_Data_with_service.csv',
-        'local_file_path': f'{LOCAL_FILE_PATH_RAW_DATA}/{EXECUTION_DATE}/ANTENNA_Data_Engineer_Test_Data_with_service.csv'
+        's3_directory': EXECUTION_DATE,
+        'local_file_directory': LOCAL_FILE_PATH_RAW_DATA_WITH_DATE
     },
     'subscriptions_with_signal': {
         'file_name': 'ANTENNA_Data_Engineer_Test_Data_with_signal.csv',
         's3_bucket': S3_BUCKET_RAW_DATA,
-        's3_key_path': f'{EXECUTION_DATE}/ANTENNA_Data_Engineer_Test_Data_with_signal.csv',
-        'local_file_path': f'{LOCAL_FILE_PATH_RAW_DATA}/{EXECUTION_DATE}/ANTENNA_Data_Engineer_Test_Data_with_signal.csv'
+        's3_directory': EXECUTION_DATE,
+        'local_file_directory': LOCAL_FILE_PATH_RAW_DATA_WITH_DATE
     },
     'subscriptions_with_is_trial': {
-        'file_name': 'ANTENNA_Data_Engineer_Test_Data_with_is_trial.csv',
+        'file_name': 'ANTENNA_Data_Engineer_Test_Data_transformed.csv',
         's3_bucket': S3_BUCKET_RAW_DATA,
-        's3_key_path': f'{EXECUTION_DATE}/ANTENNA_Data_Engineer_Test_Data_with_is_trial.csv',
-        'local_file_path': f'{LOCAL_FILE_PATH_RAW_DATA}/{EXECUTION_DATE}/ANTENNA_Data_Engineer_Test_Data_with_is_trial.csv'
+        's3_directory': EXECUTION_DATE,
+        'local_file_directory': LOCAL_FILE_PATH_RAW_DATA_WITH_DATE
     }
 }
+
+# construct full s3 and local file paths
+for key, file in FILES.items():
+    FILES[key]['s3_key_path'] = dag_util.construct_file_path(file_directory=file['s3_directory'], file_name=file['file_name'])
+    FILES[key]['local_file_path'] = dag_util.construct_file_path(file_directory=file['local_file_directory'], file_name=file['file_name'])
 
 # define DAG
 default_args = {
@@ -96,7 +103,7 @@ with DAG('source_a__1__transform_raw_subscriptions',
     # define tasks
     create_local_file_directory = BashOperator(
         task_id='create_local_file_directory',
-        bash_command='mkdir -p {}/{}'.format(LOCAL_FILE_PATH_RAW_DATA, EXECUTION_DATE)
+        bash_command='mkdir -p {}'.format(LOCAL_FILE_PATH_RAW_DATA_WITH_DATE)
     )
 
     download_subscriptions_raw_from_s3 = S3ToLocalOperator(
@@ -126,7 +133,7 @@ with DAG('source_a__1__transform_raw_subscriptions',
 
     assert_no_duplicate_items = PythonOperator(
         task_id='assert_no_duplicate_items',
-        python_callable=dag_util.assert_df_column_has_no_duplicate_values,
+        python_callable=data_quality.assert_df_column_has_no_duplicate_values,
         op_kwargs={
             'input_file_path': FILES['subscriptions_latest']['local_file_path'],
             'unique_column': 'item_id'
@@ -162,7 +169,7 @@ with DAG('source_a__1__transform_raw_subscriptions',
 
     check_signal_type_distribution = PythonOperator(
         task_id='check_signal_type_distribution',
-        python_callable=dag_util.assert_df_column_has_min_value_distribution,
+        python_callable=data_quality.assert_df_column_has_min_value_distribution,
         op_kwargs={
             'input_file_path': FILES['subscriptions_with_signal']['local_file_path'],
             'group_column': 'signal_type',
@@ -181,7 +188,7 @@ with DAG('source_a__1__transform_raw_subscriptions',
 
     check_is_trial_distribution = PythonOperator(
         task_id='check_is_trial_distribution',
-        python_callable=dag_util.assert_df_column_has_min_value_distribution,
+        python_callable=data_quality.assert_df_column_has_min_value_distribution,
         op_kwargs={
             'input_file_path': FILES['subscriptions_with_is_trial']['local_file_path'],
             'group_column': 'is_trial',
